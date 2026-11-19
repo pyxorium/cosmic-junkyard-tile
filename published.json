@@ -13,15 +13,26 @@
   },
   "tile": {
     "uri": "at://did:plc:6vxjigxrqizmbo56gojxico3/ing.dasl.masl/3mwvoqidyqd24",
-    "cid": "bafyreieimcfsaqnxoy7zog53bql4urzacxzoy7d2ty6r66fovuypqp6zuq",
-    "manifestCid": "bafyreihhilcxb6mh7pwqwb4ayalgzdn536vxguq4rqdurpfc3llhlrdzku",
+    "cid": "bafyreife6ymswem3e2dlcbl5474g7yamfxxcsxo6k26pchpqxc4oqurgvq",
+    "manifestCid": "bafyreig22tzd2ofoxxe7bxadn47vj6ezytie6qfj5pgfrnj7urwyrvst6a",
     "files": {
-      "/": "bafkreifjst4s4bjxaocrvuzt7syn55wgrjzo7doot6pemhikpqncocrcru",
+      "/": "bafkreiersshffwfwynctbcpeghtouvl7sofyd6gdgpq57a5drxumky7uqy",
       "/sprite.png": "bafkreidtr5uxobcoz6uxnjjmvtdmnwdt462624wbzxne6tvqxzdquv7xsy"
     },
-    "revisedAt": "2026-11-19T15:56:12.784Z"
+    "revisedAt": "2026-11-19T16:22:29.081Z"
   },
   "tileEarlier": [
+    {
+      "uri": "at://did:plc:6vxjigxrqizmbo56gojxico3/ing.dasl.masl/3mwvoqidyqd24",
+      "cid": "bafyreieimcfsaqnxoy7zog53bql4urzacxzoy7d2ty6r66fovuypqp6zuq",
+      "manifestCid": "bafyreihhilcxb6mh7pwqwb4ayalgzdn536vxguq4rqdurpfc3llhlrdzku",
+      "files": {
+        "/": "bafkreifjst4s4bjxaocrvuzt7syn55wgrjzo7doot6pemhikpqncocrcru",
+        "/sprite.png": "bafkreidtr5uxobcoz6uxnjjmvtdmnwdt462624wbzxne6tvqxzdquv7xsy",
+        "/screenshot.png": "bafkreifoaqthvrudur5hkpxxkad2hom53c3kxebyvecw26zfs5skrbqc7a"
+      },
+      "replacedAt": "2026-11-19T16:22:29.082Z"
+    },
     {
       "uri": "at://did:plc:6vxjigxrqizmbo56gojxico3/ing.dasl.masl/3mwvoqidyqd24",
       "cid": "bafyreiepbzbgw353thaydovj3o6m5xv2xhnokjznmqvmjm5mkvlh6edwpq",
