@@ -189,6 +189,29 @@ with sync_playwright() as p:
     ok('and replays to its score too', out.returncode == 0 and 'checks out' in out.stdout, out.stdout)
     page.screenshot(path='/tmp/cj-end.png')
     ctx.close()
+
+    # 5. The bottom edge (PG8, claude/raku-play-here-games-plan.md): at sizes where rounding makes the canvas a little
+    #    taller than the 360 x 480 picture scaled to its width, the strip below the picture must still be cleared each
+    #    frame (before the fix, dice falling past left white bars there, one per lane). A size with such a gap is found
+    #    first (1.5 device pixels per CSS pixel, as on many laptops), then a run is played and the strip looked at.
+    ctx = browser.new_context(viewport={'width': 1400, 'height': 1000}, device_scale_factor=1.5)
+    page = ctx.new_page(); page.clock.install(); page.goto(URL); tick(page, 700)
+    t = tile(page)
+    GAP = """() => { const c = document.getElementById('game'); return c.height - Math.floor(480 * c.width / 360); }"""
+    gap = 0
+    for h in range(560, 760):
+        page.evaluate("(h) => { const f = document.getElementById('t'); f.style.width = '900px'; f.style.height = h + 'px'; }", h); tick(page, 60)
+        gap = t.evaluate(GAP)
+        if gap >= 1: break
+    ok('a size where the canvas is taller than the scaled picture (the strip to clear)', gap >= 1, f'gap {gap}')
+    play_run(page, 7)
+    STRIP = """() => { const c = document.getElementById('game'); const x = c.getContext('2d'); const top = Math.floor(480 * c.width / 360);
+      const d = x.getImageData(0, top, c.width, c.height - top).data; let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 180) n++; return n; }"""
+    bright = t.evaluate(STRIP)
+    ok('after a run, the strip under the picture holds no leftover white (no bars)', bright == 0, f'{bright} bright pixels')
+    ok('...and the run ended as usual (the end screen)', t.evaluate("() => document.getElementById('savePanel').hidden") is True)
+    ctx.close()
     browser.close()
 
 passed = sum(1 for _, c in results if c)

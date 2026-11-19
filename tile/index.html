@@ -941,6 +941,11 @@
   }
 
   function render() {
+    // The whole canvas first, in its own pixels: rounding can make it a pixel or so taller than the 360 x 480 picture
+    // scaled to its width, and a strip never cleared kept the white of each die falling past (bars along the bottom).
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "rgb(5,8,16)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(viewScale, 0, 0, viewScale, 0, 0);
     drawBackground();
     if (!sheet) return; // brief window before the bundled sprite loads

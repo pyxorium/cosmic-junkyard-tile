@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { loadEngine, checkRun } from '../scripts/check-run.mjs';
 import { readLexicons } from '../scripts/publish-lexicons.mjs';
 import { checkRunRecord } from '../scripts/run-record.mjs';
@@ -25,7 +26,7 @@ function playRandom(day, fw, fh, seed) {
 }
 
 test('version 2 plays exactly as version 1 (step by step, many days, frame sizes and inputs)', () => {
-  const out = spawnSync(process.execPath, [new URL('./v1-v2.mjs', import.meta.url).pathname, new URL('./fixtures/index-v1.html', import.meta.url).pathname], { encoding: 'utf8' });
+  const out = spawnSync(process.execPath, [fileURLToPath(new URL('./v1-v2.mjs', import.meta.url)), fileURLToPath(new URL('./fixtures/index-v1.html', import.meta.url))], { encoding: 'utf8' });
   assert.equal(out.status, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /agree/);
 });

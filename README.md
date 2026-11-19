@@ -179,4 +179,6 @@ a program. Nothing checks runs automatically yet.
 - **Version 2** (Nov 2026): sounds (Web Audio beeps, no sound files, a mute button in the bar), saving runs through the
   host, optional moves for checking. Gameplay is unchanged: `test/v1-v2.mjs` runs version 1's own code and version 2's
   run engine side by side, step by step, and they agree. The four character messages are unchanged too, so every page
-  that showed version 1 shows version 2 the same way.
+  that showed version 1 shows version 2 the same way. Revised over the same record twice since: the hit became an
+  explosion (Nov 19), and the bottom edge is cleared each frame (Nov 2026: at some sizes thin white bars built up
+  along the bottom of the play area as dice fell past; drawing only, so saved runs replay exactly as before).
