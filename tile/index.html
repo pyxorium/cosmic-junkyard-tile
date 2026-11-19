@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Cosmic Junkyard</title>
+<!--
+  COSMIC JUNKYARD (version 2) -- Web Tile version of the House Dice Dice Lab game.
+  Dodge the falling dice, catch the saucers and aliens.
+
+  Ported from CosmicJunkyard.jsx (p5.js) to the browser's own Canvas 2D
+  API, so the tile carries no libraries at all. Gameplay constants,
+  the seeded daily drop sequence, scoring and the face-forward-at-rest
+  sprite behavior are carried over unchanged.
+
+  VERSION 2 adds sound (Web Audio beeps, no sound files; a mute button in
+  the bottom bar), and saving a run to the player's own account when the
+  host page can do it: the end screen then offers "Save this run", with
+  "Include my moves so this run can be checked" (unticked by default).
+  The tile can't reach the network, so it asks the host; see README.md in
+  this repo for every message.
+
+  YOUR OWN SPRITE: the tile asks the host page. Tapping "Load my RPG actor
+  sprite" sends { kind: "sprite-request" }; the host sends { kind:
+  "sprite", image, frameWidth, frameHeight, sheetWidth, sheetHeight,
+  handle }. Until then (or with no host at all) the bundled sprite.png is
+  used. A sprite that arrives during a run is shown from the end of that
+  run, so the run is played with one character from start to finish (the
+  character's size sets its hitbox, and a saved run must replay exactly).
+
+  REPLAYS: everything that decides a score is in the RUN ENGINE block
+  below, which never touches the page; scripts/check-run.mjs runs that
+  same block from this file to replay a saved run.
+
+  TRANSPORT: three tiers -- the real loader pipeline
+  (/.well-known/web-tiles/data.js), a plain iframe
+  (window.parent.postMessage), or standalone with no host.
+
+  CSP: same profile as the other tiles in this project.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' blob: data: 'unsafe-inline' 'wasm-unsafe-eval'; script-src-attr 'none'; style-src 'self' blob: data: 'unsafe-inline'; form-src 'self'; manifest-src 'none'; object-src 'none'; base-uri 'none';" />
+<meta name="referrer" content="no-referrer" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: #05070d; color: #eaf0f6;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #app { display: flex; flex-direction: column; width: 100%; height: 100%; }
+  #stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #game { display: block; touch-action: none; outline: none; -webkit-user-select: none; user-select: none; }
+  #bar {
+    flex: none; display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-top: 1px solid #1c2230; min-height: 44px;
+  }
+  #status { flex: 1; font-size: 12px; color: #8ea0b3; line-height: 1.3; min-width: 0; }
+  #spriteBtn, #muteBtn {
+    flex: none; appearance: none; border: 1px solid rgba(140,180,255,0.45);
+    background: rgba(140,180,255,0.12); color: #eaf0f6; font-size: 12px;
+    padding: 7px 12px; border-radius: 8px; cursor: pointer;
+  }
+  #spriteBtn { display: none; }
+  #muteBtn { display: inline-flex; align-items: center; justify-content: center; padding: 5px 8px; }
+  #muteBtn svg { display: block; width: 18px; height: 18px; }
+  #spriteBtn:hover, #muteBtn:hover { background: rgba(140,180,255,0.24); }
+  #spriteBtn:disabled { opacity: 0.5; cursor: default; }
+
+  /* The end screen's save controls (only when the host can save): laid over the canvas, in the
+     canvas's own 360 x 480 units, scaled with it (layoutCanvas). */
+  #savePanel {
+    position: absolute; left: 0; top: 0; width: 360px; height: 100px;
+    transform-origin: 0 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
+    font-size: 12px; text-align: center;
+  }
+  #savePanel[hidden] { display: none; }
+  #saveBtn {
+    appearance: none; width: 140px; height: 34px; border-radius: 17px; cursor: pointer;
+    border: 1.5px solid rgb(140,180,255); background: transparent; color: #eaf0f6; font-size: 14px;
+  }
+  #saveBtn:hover:not(:disabled) { background: rgba(140,180,255,0.18); }
+  #saveBtn:disabled { cursor: default; opacity: 0.7; }
+  #movesLabel { display: flex; align-items: center; gap: 6px; color: #b8c6d6; cursor: pointer; }
+  #movesLabel input { margin: 0; accent-color: rgb(140,180,255); }
+  #movesLabel.off { opacity: 0.5; cursor: default; }
+  #saveStatus { color: #8ea0b3; min-height: 16px; }
+  #saveStatus .ok { color: #eaf0f6; }
+  #seeIt {
+    appearance: none; border: none; background: none; padding: 0 0 0 6px; margin: 0;
+    color: rgb(140,180,255); font-size: 12px; text-decoration: underline; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="game" tabindex="0" aria-label="Cosmic Junkyard game"></canvas>
+    <div id="savePanel" hidden>
+      <button id="saveBtn" type="button">Save this run</button>
+      <label id="movesLabel"><input type="checkbox" id="movesBox" /> Include my moves so this run can be checked</label>
+      <div id="saveStatus" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+  <div id="bar">
+    <div id="status">← → or tap the left / right half to move</div>
+    <button id="muteBtn" type="button" aria-pressed="false" aria-label="Sound on (click to mute)" title="Sound on (click to mute)"></button>
+    <button id="spriteBtn" type="button">Load my RPG actor sprite</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ==== RUN ENGINE START ====
+  // Everything that decides a run's score, and nothing else: no page, no clock, no randomness
+  // beyond the seeded daily course. The page drives it one fixed 60 Hz step at a time with the
+  // direction held during that step ("left", "right" or "stop"); scripts/check-run.mjs takes this
+  // block out of this file and replays a saved run's moves through it. Gameplay constants are
+  // carried over from CosmicJunkyard.jsx (version 1's numbers, unchanged).
+  const RunEngine = (function () {
+    const CANVAS_WIDTH = 360;
+    const CANVAS_HEIGHT = 480;
+    const CHARACTER_FEET_MARGIN = 14;
+    const SPRITE_SCALE = 1.75;
+    const MOVE_SPEED = 4;
+    const TRACK_COUNT = 4;
+    const TRACK_SPACING = CANVAS_WIDTH / TRACK_COUNT;
+    const FALL_SPEED = 2.5;
+    const STEP_MS = 1000 / 60;
+    // A drop every 728 ms: at 60 steps a second, every 44 steps (version 1 measured the same
+    // 728 ms in floating-point milliseconds, which comes to the same steps, from the first step).
+    const SPAWN_INTERVAL_MS = 728;
+    const SPAWN_STEPS = Math.ceil(SPAWN_INTERVAL_MS / STEP_MS);
+    const RUN_LENGTH = 55; // 50 die/saucer slots + 5 alien slots
+    const SAUCER_CHANCE = 0.2;
+    const SAUCER_BONUS = 10;
+    const ALIEN_COUNT = 5;
+    const ALIEN_VALUE = 15;
+    const HITBOX_FRACTION_OF_WIDTH = 0.65;
+    const DIE_PIP_SIZE_MULTIPLIER = { 4: 1.2, 5: 1.4, 6: 1.5 };
+    const WAVE_AMPLITUDE = 15;
+    const WAVE_CYCLES = 2;
+    const EDGE = 48;                 // the character's centre stays this far from the sides
+    const MAX_STEPS = 20000;         // a replay gives up after this many steps (a run takes about 2,600)
+    const MAX_CHANGES = 4000;        // the most direction changes a saved run may hold
+    const GOES = ["left", "right", "stop"];
+
+    // Seeded daily sequence -- identical generator to the House Dice room. The day is the
+    // America/Denver calendar day ("2026-11-19"), the same day boundary House Dice uses.
+    function seedFromString(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+      return hash;
+    }
+    function mulberry32(seed) {
+      let a = seed;
+      return function () {
+        a |= 0;
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    function generateDailySequence(day) {
+      const rand = mulberry32(seedFromString(day));
+      const alienPositions = new Set();
+      while (alienPositions.size < ALIEN_COUNT) alienPositions.add(Math.floor(rand() * RUN_LENGTH));
+      const sequence = [];
+      for (let i = 0; i < RUN_LENGTH; i++) {
+        if (alienPositions.has(i)) {
+          sequence.push({ track: Math.floor(rand() * TRACK_COUNT), type: "alien", value: ALIEN_VALUE });
+        } else {
+          const track = Math.floor(rand() * TRACK_COUNT);
+          const isSaucer = rand() < SAUCER_CHANCE;
+          const value = isSaucer ? SAUCER_BONUS : 1 + Math.floor(rand() * 6);
+          const phase = isSaucer ? 0 : rand() * Math.PI * 2; // saucers never consume this call
+          sequence.push({ track, type: isSaucer ? "saucer" : "die", value, phase });
+        }
+      }
+      return sequence;
+    }
+
+    function trackCenterX(trackIndex) { return trackIndex * TRACK_SPACING + TRACK_SPACING / 2; }
+    function pickObjectSize(type, value) {
+      if (type === "saucer" || type === "alien") return 32;
+      return 38 * (DIE_PIP_SIZE_MULTIPLIER[value] || 1.0);
+    }
+    function straightTrackFn(centerX) { return () => centerX; }
+    function wavyTrackFn(centerX, phase) {
+      return (fallProgress) => centerX + WAVE_AMPLITUDE * Math.sin((fallProgress / CANVAS_HEIGHT) * WAVE_CYCLES * 2 * Math.PI + phase);
+    }
+    function boxesOverlap(ax, ay, aSize, bx, by, bSize) {
+      const aHalf = aSize / 2, bHalf = bSize / 2;
+      return Math.abs(ax - bx) < aHalf + bHalf && Math.abs(ay - by) < aHalf + bHalf;
+    }
+    function tallyBreakdown(drops) {
+      let dodged = 0, hit = 0, saucers = 0, aliens = 0;
+      for (const d of drops) {
+        if (d.type === "die" && d.outcome === "dodged") dodged += 1;
+        else if (d.type === "die" && d.outcome === "hit") hit += 1;
+        else if (d.type === "saucer" && d.outcome === "collected") saucers += 1;
+        else if (d.type === "alien" && d.outcome === "collected") aliens += 1;
+      }
+      return { dodged, hit, saucers, aliens };
+    }
+
+    // One run of the given day's course, with a character frame of the given size (its hitbox
+    // and height come from it). run.step(go) advances one step and returns what happened in it,
+    // for the page's floating numbers and sounds: { type: "hit" | "catch" | "dodge", ... }.
+    function createRun({ day, frameWidth, frameHeight }) {
+      const sequence = generateDailySequence(day);
+      const destWidth = frameWidth * SPRITE_SCALE, destHeight = frameHeight * SPRITE_SCALE;
+      const run = {
+        day, frameWidth, frameHeight,
+        characterY: CANVAS_HEIGHT - CHARACTER_FEET_MARGIN - destHeight / 2,
+        hitbox: destWidth * HITBOX_FRACTION_OF_WIDTH,
+        steps: 0, charX: CANVAS_WIDTH / 2, objects: [], nextId: 0, score: 0,
+        dropsSpawned: 0, dropsResolved: 0, complete: false, dropLog: [], lastSpawnStep: -Infinity,
+      };
+      run.step = function (go) {
+        const events = [];
+        if (run.complete) return events;
+        run.steps += 1;
+        if (go === "left") run.charX -= MOVE_SPEED;
+        else if (go === "right") run.charX += MOVE_SPEED;
+        run.charX = Math.max(EDGE, Math.min(CANVAS_WIDTH - EDGE, run.charX));
+
+        if (run.dropsSpawned < RUN_LENGTH && run.steps - run.lastSpawnStep >= SPAWN_STEPS) {
+          run.lastSpawnStep = run.steps;
+          const drop = sequence[run.dropsSpawned];
+          run.dropsSpawned += 1;
+          const size = pickObjectSize(drop.type, drop.value);
+          run.objects.push({
+            id: run.nextId++, type: drop.type, track: drop.track,
+            trackFn: drop.type === "die" ? wavyTrackFn(trackCenterX(drop.track), drop.phase) : straightTrackFn(trackCenterX(drop.track)),
+            fallProgress: 0, y: -size, size, rotation: 0, value: drop.value,
+          });
+        }
+
+        const survivors = [];
+        for (const obj of run.objects) {
+          obj.y += FALL_SPEED;
+          obj.fallProgress += FALL_SPEED;
+          if (obj.type === "die") obj.rotation += 0.03;
+          const x = obj.trackFn(obj.fallProgress);
+          if (boxesOverlap(run.charX, run.characterY, run.hitbox, x, obj.y, obj.size)) {
+            run.dropsResolved += 1;
+            if (obj.type === "die") {
+              run.score -= obj.value;
+              run.dropLog.push({ type: "die", track: obj.track, value: obj.value, outcome: "hit" });
+              events.push({ type: "hit", x, y: obj.y, value: obj.value });
+            } else {
+              run.score += obj.value;
+              run.dropLog.push({ type: obj.type, track: obj.track, value: obj.value, outcome: "collected" });
+              events.push({ type: "catch", kind: obj.type, x, y: obj.y, value: obj.value });
+            }
+            continue;
+          }
+          if (obj.y - obj.size / 2 > CANVAS_HEIGHT) {
+            run.dropsResolved += 1;
+            if (obj.type === "die") {
+              run.score += obj.value;
+              run.dropLog.push({ type: "die", track: obj.track, value: obj.value, outcome: "dodged" });
+              events.push({ type: "dodge", x, value: obj.value });
+            } else {
+              run.dropLog.push({ type: obj.type, track: obj.track, value: obj.value, outcome: "missed" });
+            }
+            continue;
+          }
+          survivors.push(obj);
+        }
+        run.objects = survivors;
+        if (run.dropsSpawned >= RUN_LENGTH && run.objects.length === 0) run.complete = true;
+        return events;
+      };
+      return run;
+    }
+
+    // Replays a saved run's moves ({ frame: { width, height }, steps, changes: [{ at, go }] }) on
+    // its day's course. → { ok: true, score, tally, steps } or { ok: false, problem }.
+    function replay(day, moves) {
+      if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { ok: false, problem: "day" };
+      if (!moves || typeof moves !== "object" || !moves.frame) return { ok: false, problem: "moves" };
+      const { width, height } = moves.frame;
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096) return { ok: false, problem: "frame" };
+      const changes = moves.changes;
+      if (!Array.isArray(changes) || changes.length > MAX_CHANGES) return { ok: false, problem: "changes" };
+      let last = 0;
+      for (const c of changes) {
+        if (!c || !Number.isInteger(c.at) || c.at <= last || GOES.indexOf(c.go) < 0) return { ok: false, problem: "changes" };
+        last = c.at;
+      }
+      const run = createRun({ day, frameWidth: width, frameHeight: height });
+      let go = "stop", next = 0;
+      while (!run.complete && run.steps < MAX_STEPS) {
+        if (next < changes.length && changes[next].at === run.steps + 1) { go = changes[next].go; next += 1; }
+        run.step(go);
+      }
+      if (!run.complete) return { ok: false, problem: "unfinished" };
+      if (next < changes.length) return { ok: false, problem: "moves after the end" };
+      if (Number.isInteger(moves.steps) && moves.steps !== run.steps) return { ok: false, problem: "steps" };
+      return { ok: true, score: run.score, tally: tallyBreakdown(run.dropLog), steps: run.steps };
+    }
+
+    return {
+      createRun, replay, tallyBreakdown, generateDailySequence,
+      CANVAS_WIDTH, CANVAS_HEIGHT, SPRITE_SCALE, RUN_LENGTH, STEP_MS, MAX_CHANGES,
+    };
+  })();
+  // ==== RUN ENGINE END ====
+
+  // ==== SOUND ENGINE START ====
+  // Retro arcade beeps made with Web Audio (no sound files). Each sound is a list of notes:
+  // { wave, from, to, at, dur, gain, attack } -- a waveform, a pitch in Hz sliding from `from`
+  // to `to`, starting `at` seconds in, lasting `dur` seconds, at `gain`, rising over `attack`
+  // seconds and then fading out. tools/sound-tuning.html holds a copy of this block (a check
+  // keeps them the same) to play and adjust each sound; its "Copy settings" gives the text to
+  // paste over SOUND_SETTINGS.
+  const SOUND_SETTINGS = {
+    volume: 0.5,
+    sounds: {
+      start: [
+        { wave: "square", from: 523.25, to: 523.25, at: 0, dur: 0.09, gain: 0.22, attack: 0.005 },
+        { wave: "square", from: 659.25, to: 659.25, at: 0.07, dur: 0.09, gain: 0.22, attack: 0.005 },
+        { wave: "square", from: 783.99, to: 783.99, at: 0.14, dur: 0.09, gain: 0.22, attack: 0.005 },
+        { wave: "square", from: 1046.5, to: 1046.5, at: 0.21, dur: 0.2, gain: 0.22, attack: 0.005 },
+      ],
+      catch: [
+        { wave: "square", from: 988, to: 1480, at: 0, dur: 0.08, gain: 0.2, attack: 0.003 },
+        { wave: "square", from: 1480, to: 1480, at: 0.06, dur: 0.06, gain: 0.14, attack: 0.003 },
+      ],
+      alien: [
+        { wave: "square", from: 660, to: 990, at: 0, dur: 0.07, gain: 0.2, attack: 0.003 },
+        { wave: "square", from: 990, to: 1480, at: 0.07, dur: 0.09, gain: 0.2, attack: 0.003 },
+        { wave: "triangle", from: 1975, to: 1975, at: 0.15, dur: 0.12, gain: 0.18, attack: 0.003 },
+      ],
+      hit: [
+        { wave: "sawtooth", from: 160, to: 55, at: 0, dur: 0.28, gain: 0.26, attack: 0.004 },
+        { wave: "square", from: 90, to: 50, at: 0, dur: 0.25, gain: 0.14, attack: 0.004 },
+      ],
+      end: [
+        { wave: "square", from: 392, to: 392, at: 0, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 523.25, to: 523.25, at: 0.12, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 659.25, to: 659.25, at: 0.24, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 783.99, to: 783.99, at: 0.36, dur: 0.2, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 659.25, to: 659.25, at: 0.6, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 1046.5, to: 1046.5, at: 0.72, dur: 0.45, gain: 0.16, attack: 0.005 },
+      ],
+      click: [
+        { wave: "square", from: 1800, to: 1800, at: 0, dur: 0.025, gain: 0.1, attack: 0.002 },
+      ],
+    },
+  };
+  function createSoundEngine(settings) {
+    let ac = null, master = null;
+    return {
+      settings,
+      // From a tap or key press (browsers start sound only then): makes the audio context, or wakes it.
+      unlock() {
+        try {
+          if (!ac) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            ac = new AC();
+            master = ac.createGain();
+            master.connect(ac.destination);
+          }
+          if (ac.state === "suspended") ac.resume();
+        } catch { ac = null; }
+      },
+      play(name) {
+        const notes = settings.sounds[name];
+        if (!ac || !notes) return;
+        try {
+          master.gain.setValueAtTime(settings.volume, ac.currentTime);
+          for (const n of notes) {
+            const t0 = ac.currentTime + Math.max(0, n.at);
+            const end = t0 + Math.max(0.01, n.dur);
+            const osc = ac.createOscillator();
+            const g = ac.createGain();
+            osc.type = n.wave;
+            osc.frequency.setValueAtTime(n.from, t0);
+            if (n.to > 0 && n.to !== n.from) osc.frequency.exponentialRampToValueAtTime(n.to, end);
+            g.gain.setValueAtTime(0.0001, t0);
+            g.gain.linearRampToValueAtTime(Math.max(0.0001, n.gain), t0 + Math.max(0.001, n.attack));
+            g.gain.exponentialRampToValueAtTime(0.0001, end);
+            osc.connect(g);
+            g.connect(master);
+            osc.start(t0);
+            osc.stop(end + 0.02);
+          }
+        } catch { /* no sound this time */ }
+      },
+    };
+  }
+  // ==== SOUND ENGINE END ====
+
+  const CANVAS_WIDTH = RunEngine.CANVAS_WIDTH;
+  const CANVAS_HEIGHT = RunEngine.CANVAS_HEIGHT;
+  const SPRITE_SCALE = RunEngine.SPRITE_SCALE;
+  const RUN_LENGTH = RunEngine.RUN_LENGTH;
+  const STEP_MS = RunEngine.STEP_MS;
+  const RUN_COLLECTION = "cafe.thunderbird.cosmicjunkyard.run";
+
+  const GLOW_DURATION_MS = 250;
+  const FRAME_MS = 190;
+  const WALK_SEQUENCE = [0, 1, 2, 1];
+  // Turn to face the player only after a real pause, not between quick taps.
+  const REST_FACING_GRACE_MS = 175;
+
+  const BUTTON_WIDTH = 140;
+  const BUTTON_HEIGHT = 44;
+  const START_BUTTON_Y = CANVAS_HEIGHT / 2;
+  // The end screen: version 1's places, or, when the host can save, higher up to leave room for
+  // the save controls below Play Again.
+  const END_LAYOUT = { plain: { score: CANVAS_HEIGHT / 2 - 14, button: CANVAS_HEIGHT / 2 + 50 }, saving: { score: 150, button: 200, panel: 236 } };
+
+  // The bundled fallback: thunderbirdwine.bsky.social's actor.rpg.sprite.
+  const FALLBACK_SPRITE = { src: "sprite.png", frameWidth: 48, frameHeight: 48, sheetWidth: 144, sheetHeight: 192 };
+  const MAX_SHEET_DIMENSION = 4096;
+
+  // "Today" is the America/Denver calendar day, the same day boundary House Dice uses, so the
+  // tile and the app serve the same run. Read at the start of each run.
+  function todayStr() {
+    try {
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    } catch {
+      const d = new Date();
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+  }
+  function pipOffsets(value) {
+    return {
+      1: [[0, 0]],
+      2: [[-1, -1], [1, 1]],
+      3: [[-1, -1], [0, 0], [1, 1]],
+      4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+      5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
+      6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
+    }[value];
+  }
+
+  // ===================================================================
+  // Canvas setup -- draws in 360x480 logical units, scaled to fit.
+  // ===================================================================
+  const canvas = document.getElementById("game");
+  const stageEl = document.getElementById("stage");
+  const ctx = canvas.getContext("2d");
+  const savePanel = document.getElementById("savePanel");
+  let viewScale = 1;
+
+  function layoutCanvas() {
+    const availW = stageEl.clientWidth, availH = stageEl.clientHeight;
+    if (!availW || !availH) return;
+    const scale = Math.min(availW / CANVAS_WIDTH, availH / CANVAS_HEIGHT);
+    const cssW = Math.floor(CANVAS_WIDTH * scale), cssH = Math.floor(CANVAS_HEIGHT * scale);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    viewScale = canvas.width / CANVAS_WIDTH;
+    // The save controls sit in the canvas's own units, scaled with it.
+    const left = (availW - cssW) / 2, top = (availH - cssH) / 2, s = cssW / CANVAS_WIDTH;
+    savePanel.style.transform = "translate(" + left + "px," + (top + END_LAYOUT.saving.panel * s) + "px) scale(" + s + ")";
+  }
+  window.addEventListener("resize", layoutCanvas);
+  layoutCanvas();
+
+  function roundRectPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function rgba(r, g, b, a) { return "rgba(" + r + "," + g + "," + b + "," + (a / 255) + ")"; }
+  function setFont(px) { ctx.font = px + "px sans-serif"; }
+
+  // ===================================================================
+  // Sound -- on by default; the mute button in the bar turns it off for this visit.
+  // ===================================================================
+  const sound = createSoundEngine(SOUND_SETTINGS);
+  let muted = false;
+  function play(name) { if (!muted) sound.play(name); }
+  const muteBtn = document.getElementById("muteBtn");
+  const SPEAKER = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+  function drawMute() {
+    muteBtn.innerHTML = SPEAKER + (muted
+      ? '<path d="M17 9l5 6M22 9l-5 6"/></svg>'
+      : '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>');
+    const label = muted ? "Sound off (click to turn it on)" : "Sound on (click to mute)";
+    muteBtn.setAttribute("aria-label", label);
+    muteBtn.title = label;
+    muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
+  }
+  drawMute();
+  muteBtn.addEventListener("click", () => {
+    sound.unlock();
+    muted = !muted;
+    drawMute();
+    play("click");
+  });
+
+  // ===================================================================
+  // Sprite -- the bundled fallback first, swapped for the player's own
+  // sprite if the host page sends one.
+  // ===================================================================
+  let sheet = null;
+  let frameWidth = 48, frameHeight = 48;
+  let destWidth = 48 * SPRITE_SCALE, destHeight = 48 * SPRITE_SCALE;
+  let characterY = CANVAS_HEIGHT - 14 - destHeight / 2;
+  let facingRowLeft = 0, facingRowRight = 1;
+  let facingRowForward = null; // null when the sheet has no reliable forward row
+  let facingRow = facingRowRight;
+  let currentObjectUrl = null;
+  let pendingSheet = null;     // a sprite that arrived during a run: shown once the run ends
+
+  function applySheet(img, dims) {
+    sheet = img;
+    frameWidth = dims.frameWidth;
+    frameHeight = dims.frameHeight;
+    const sheetRows = Math.max(1, Math.round((dims.sheetHeight || frameHeight) / frameHeight));
+    facingRowLeft = sheetRows >= 3 ? 1 : 0;
+    facingRowRight = sheetRows >= 3 ? 2 : (sheetRows > 1 ? 1 : 0);
+    facingRowForward = sheetRows >= 3 ? 0 : null; // rpg.actor row 0 faces the viewer
+    facingRow = facingRowRight;
+    destWidth = frameWidth * SPRITE_SCALE;
+    destHeight = frameHeight * SPRITE_SCALE;
+    characterY = CANVAS_HEIGHT - 14 - destHeight / 2;
+  }
+  function restingRow() { return facingRowForward != null ? facingRowForward : facingRow; }
+  function runInProgress() { return gameStarted && run && !run.complete; }
+  function applyPendingSheet() {
+    if (!pendingSheet) return;
+    const p = pendingSheet;
+    pendingSheet = null;
+    if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+    currentObjectUrl = p.objectUrl;
+    applySheet(p.img, p.dims);
+  }
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("image failed to load"));
+      img.src = src;
+    });
+  }
+
+  function placeholderSheet() {
+    // Last resort only: both the bundled sprite and any sent sprite failed.
+    const c = document.createElement("canvas");
+    c.width = 48 * 3; c.height = 48 * 4;
+    const g = c.getContext("2d");
+    g.fillStyle = "rgb(210,210,215)";
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 3; col++) g.fillRect(col * 48 + 12, row * 48 + 4, 24, 42);
+    return c;
+  }
+
+  let spriteReady = loadImage(FALLBACK_SPRITE.src)
+    .then((img) => applySheet(img, FALLBACK_SPRITE))
+    .catch(() => applySheet(placeholderSheet(), { frameWidth: 48, frameHeight: 48, sheetWidth: 144, sheetHeight: 192 }));
+
+  function isDim(n) { return Number.isInteger(n) && n > 0 && n <= MAX_SHEET_DIMENSION; }
+
+  async function handleSpriteMessage(msg) {
+    const dims = { frameWidth: msg.frameWidth, frameHeight: msg.frameHeight, sheetWidth: msg.sheetWidth, sheetHeight: msg.sheetHeight };
+    if (!isDim(dims.frameWidth) || !isDim(dims.frameHeight) || !isDim(dims.sheetWidth) || !isDim(dims.sheetHeight) ||
+        dims.frameWidth > dims.sheetWidth || dims.frameHeight > dims.sheetHeight) {
+      setStatus("That sprite couldn't be used, so the current character stays.");
+      return;
+    }
+    // Accept a real Blob or a data: URL string, so the host can switch
+    // between them without this sealed tile needing a republish.
+    let src, objectUrl = null;
+    if (typeof Blob !== "undefined" && msg.image instanceof Blob) {
+      if (msg.image.type && !msg.image.type.startsWith("image/")) {
+        setStatus("That sprite couldn't be used, so the current character stays.");
+        return;
+      }
+      objectUrl = URL.createObjectURL(msg.image);
+      src = objectUrl;
+    } else if (typeof msg.image === "string" && msg.image.startsWith("data:image/")) {
+      src = msg.image;
+    } else {
+      setStatus("That sprite couldn't be used, so the current character stays.");
+      return;
+    }
+    try {
+      const img = await loadImage(src);
+      if (img.naturalWidth < dims.frameWidth || img.naturalHeight < dims.frameHeight) throw new Error("sheet smaller than one frame");
+      if (pendingSheet && pendingSheet.objectUrl) URL.revokeObjectURL(pendingSheet.objectUrl);
+      pendingSheet = { img, dims, objectUrl };
+      if (!runInProgress()) applyPendingSheet();
+      const handle = typeof msg.handle === "string" ? msg.handle.replace(/^@/, "").slice(0, 100) : "";
+      restingStatus = handle ? "Playing as @" + handle : "Playing with your sprite";
+      setStatus(restingStatus);
+      spriteBtn.textContent = "Load a different sprite";
+      spriteBtn.disabled = false;
+    } catch {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setStatus("That sprite couldn't be loaded, so the current character stays.");
+      spriteBtn.disabled = false;
+    }
+  }
+
+  // ===================================================================
+  // Game state -- the run itself lives in the run engine; the page keeps
+  // what's only for drawing (facing, the walk cycle, floating numbers).
+  // ===================================================================
+  let simTime = 0;          // ms of simulated time, advanced in fixed 60Hz steps (drawing only)
+  let run = null;           // the run engine's run: the course, the character's place, the score
+  let go = "stop";          // the direction held in the latest step
+  let changes = [];         // every change of direction in this run: { at: step, go }
+  let lastRun = null;       // the finished run, ready to save
+  let isMoving = false;
+  let lastMovedAt = -Infinity;
+  let sequencePos = 0, lastStepAt = 0;
+  let gameStarted = false;
+  let floatingTexts = [];
+  let glowUntil = 0, glowColor = null;
+  const CHAR_REST_X = CANVAS_WIDTH / 2;
+
+  function newRun() {
+    applyPendingSheet();
+    run = RunEngine.createRun({ day: todayStr(), frameWidth, frameHeight });
+    go = "stop";
+    changes = [];
+    lastRun = null;
+    facingRow = facingRowRight;
+    lastMovedAt = -Infinity;
+    sequencePos = 0; lastStepAt = 0;
+    floatingTexts = [];
+    glowUntil = 0; glowColor = null;
+    hideSavePanel();
+  }
+  function beginGame() {
+    sound.unlock();
+    gameStarted = true;
+    newRun();
+    play("start");
+  }
+  // Same as the original's free-play replay: the same daily course again.
+  function resetForReplay() {
+    sound.unlock();
+    newRun();
+    play("start");
+  }
+  function runComplete() { return !!run && run.complete; }
+
+  // ===================================================================
+  // Input -- arrow keys, plus touch / mouse holding the left or right
+  // half of the canvas. Every pointer is tracked by id and removed on
+  // release or cancel, so a stale touch can never keep the character
+  // walking on its own.
+  // ===================================================================
+  const keysDown = new Set();
+  const activePointers = new Map(); // pointerId -> logical x
+
+  function toLogical(e) {
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: ((e.clientX - r.left) / r.width) * CANVAS_WIDTH,
+      y: ((e.clientY - r.top) / r.height) * CANVAS_HEIGHT,
+    };
+  }
+  function isPointInButton(x, y, centerY) {
+    const bx = CANVAS_WIDTH / 2 - BUTTON_WIDTH / 2, by = centerY - BUTTON_HEIGHT / 2;
+    return x >= bx && x <= bx + BUTTON_WIDTH && y >= by && y <= by + BUTTON_HEIGHT;
+  }
+  function endLayout() { return canSave ? END_LAYOUT.saving : END_LAYOUT.plain; }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      keysDown.add(e.key);
+      e.preventDefault();
+    } else if ((e.key === "Enter" || e.key === " ") && document.activeElement === canvas) {
+      if (!gameStarted) beginGame();
+      else if (runComplete()) resetForReplay();
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("keyup", (e) => keysDown.delete(e.key));
+  function releaseEverything() { keysDown.clear(); activePointers.clear(); }
+  window.addEventListener("blur", releaseEverything);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseEverything(); });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.focus({ preventScroll: true });
+    sound.unlock();
+    const p = toLogical(e);
+    if (!gameStarted) {
+      if (isPointInButton(p.x, p.y, START_BUTTON_Y)) beginGame();
+      return;
+    }
+    if (runComplete()) {
+      if (isPointInButton(p.x, p.y, endLayout().button)) resetForReplay();
+      return;
+    }
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+    activePointers.set(e.pointerId, p.x);
+    e.preventDefault();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, toLogical(e).x);
+  });
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+    canvas.addEventListener(type, (e) => activePointers.delete(e.pointerId));
+  }
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  function pointerHeldInHalf(isLeftHalf) {
+    for (const x of activePointers.values()) if ((x < CANVAS_WIDTH / 2) === isLeftHalf) return true;
+    return false;
+  }
+  // The direction held now: "left", "right" or "stop" (both or neither).
+  function heldDirection() {
+    const movingLeft = keysDown.has("ArrowLeft") || pointerHeldInHalf(true);
+    const movingRight = keysDown.has("ArrowRight") || pointerHeldInHalf(false);
+    if (movingLeft && !movingRight) return "left";
+    if (movingRight && !movingLeft) return "right";
+    return "stop";
+  }
+
+  // ===================================================================
+  // Simulation -- one fixed 60Hz step
+  // ===================================================================
+  function addFloatingText(x, y, text, color) { floatingTexts.push({ x, y, text, color, startedAt: simTime }); }
+  function triggerGlow(color) { glowColor = color; glowUntil = simTime + GLOW_DURATION_MS; }
+
+  function step() {
+    simTime += STEP_MS;
+    if (!gameStarted || runComplete()) return;
+    const held = heldDirection();
+    if (held !== go) { go = held; changes.push({ at: run.steps + 1, go }); }
+    const events = run.step(go);
+    isMoving = go !== "stop";
+    if (go === "left") facingRow = facingRowLeft;
+    else if (go === "right") facingRow = facingRowRight;
+    if (isMoving) lastMovedAt = simTime;
+    for (const ev of events) {
+      if (ev.type === "hit") {
+        addFloatingText(ev.x, ev.y, "-" + ev.value, [230, 90, 90]);
+        triggerGlow([230, 90, 90, 90]);
+        play("hit");
+      } else if (ev.type === "catch") {
+        addFloatingText(ev.x, ev.y, "+" + ev.value, [220, 220, 220]);
+        triggerGlow([140, 180, 255, 90]);
+        play(ev.kind === "alien" ? "alien" : "catch");
+      } else if (ev.type === "dodge") {
+        addFloatingText(ev.x, CANVAS_HEIGHT - 16, "+" + ev.value, [220, 220, 220]);
+      }
+    }
+    floatingTexts = floatingTexts.filter((ft) => simTime - ft.startedAt < 700);
+    if (isMoving) {
+      if (simTime - lastStepAt > FRAME_MS) { sequencePos += 1; lastStepAt = simTime; }
+    } else {
+      sequencePos = 0;
+    }
+    if (run.complete) finishRun();
+  }
+
+  function finishRun() {
+    releaseEverything();
+    isMoving = false;
+    const tally = RunEngine.tallyBreakdown(run.dropLog);
+    lastRun = {
+      score: run.score,
+      day: run.day,
+      playedAt: new Date().toISOString(),
+      tally,
+      moves: { frame: { width: run.frameWidth, height: run.frameHeight }, steps: run.steps, changes: changes.slice() },
+    };
+    play("end");
+    applyPendingSheet();
+    showSavePanel();
+  }
+
+  // ===================================================================
+  // Background -- twinkling stars, a dim moon, an occasional shooting star
+  // ===================================================================
+  const STAR_LAYERS = [
+    { count: 26, sizeRange: [1, 1.5], twinkleSpeed: 0.0015 },
+    { count: 12, sizeRange: [1.5, 2.5], twinkleSpeed: 0.003 },
+  ];
+  const SHOOTING_STAR_MIN_GAP_MS = 8000;
+  const SHOOTING_STAR_MAX_GAP_MS = 15000;
+  const stars = [];
+  for (const layer of STAR_LAYERS) {
+    for (let i = 0; i < layer.count; i++) {
+      stars.push({
+        x: Math.random() * CANVAS_WIDTH, y: Math.random() * CANVAS_HEIGHT,
+        size: layer.sizeRange[0] + Math.random() * (layer.sizeRange[1] - layer.sizeRange[0]),
+        twinkleSpeed: layer.twinkleSpeed * (0.7 + Math.random() * 0.6),
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+  let shootingStar = null;
+  let nextShootingStarAt = 0;
+  function scheduleNextShootingStar() {
+    nextShootingStarAt = simTime + SHOOTING_STAR_MIN_GAP_MS + Math.random() * (SHOOTING_STAR_MAX_GAP_MS - SHOOTING_STAR_MIN_GAP_MS);
+  }
+  scheduleNextShootingStar();
+  function updateShootingStar() {
+    if (!shootingStar && simTime >= nextShootingStarAt) {
+      const fromTop = Math.random() < 0.5;
+      shootingStar = {
+        x: fromTop ? Math.random() * CANVAS_WIDTH * 0.6 : 0,
+        y: fromTop ? 0 : Math.random() * CANVAS_HEIGHT * 0.5,
+        vx: 5, vy: 3, life: 0,
+      };
+    }
+    if (!shootingStar) return;
+    shootingStar.x += shootingStar.vx;
+    shootingStar.y += shootingStar.vy;
+    shootingStar.life += 1;
+    if (shootingStar.x > CANVAS_WIDTH + 20 || shootingStar.y > CANVAS_HEIGHT + 20 || shootingStar.life > 120) {
+      shootingStar = null;
+      scheduleNextShootingStar();
+    }
+  }
+
+  const skyGradient = (() => {
+    const g = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    g.addColorStop(0, "rgb(10,14,26)");
+    g.addColorStop(1, "rgb(5,8,16)");
+    return g;
+  })();
+
+  function drawBackground() {
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    for (const star of stars) {
+      const twinkle = 0.5 + 0.5 * Math.sin(simTime * star.twinkleSpeed + star.phase);
+      ctx.fillStyle = rgba(207, 224, 255, 70 + twinkle * 130);
+      ctx.beginPath(); ctx.arc(star.x, star.y, star.size / 2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = rgba(160, 160, 160, 50);
+    ctx.beginPath(); ctx.arc(CANVAS_WIDTH - 44, 44, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = rgba(20, 20, 20, 40);
+    ctx.beginPath(); ctx.arc(CANVAS_WIDTH - 54, 34, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(CANVAS_WIDTH - 34, 54, 4.5, 0, Math.PI * 2); ctx.fill();
+    if (shootingStar) {
+      const fade = 1 - shootingStar.life / 120;
+      ctx.strokeStyle = rgba(140, 180, 255, 200 * fade);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(shootingStar.x, shootingStar.y);
+      ctx.lineTo(shootingStar.x - shootingStar.vx * 4, shootingStar.y - shootingStar.vy * 4);
+      ctx.stroke();
+    }
+  }
+
+  function drawButton(label, centerY) {
+    const bx = CANVAS_WIDTH / 2 - BUTTON_WIDTH / 2, by = centerY - BUTTON_HEIGHT / 2;
+    ctx.fillStyle = "rgb(140,180,255)";
+    roundRectPath(bx, by, BUTTON_WIDTH, BUTTON_HEIGHT, 22);
+    ctx.fill();
+    ctx.fillStyle = "rgb(20,20,20)";
+    setFont(16);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(label, CANVAS_WIDTH / 2, centerY);
+  }
+
+  function drawCharacter(frameIndex, row, x) {
+    if (!sheet) return;
+    ctx.imageSmoothingEnabled = false; // crisp pixel art
+    ctx.drawImage(
+      sheet,
+      frameIndex * frameWidth, row * frameHeight, frameWidth, frameHeight,
+      x - destWidth / 2, characterY - destHeight / 2, destWidth, destHeight
+    );
+  }
+
+  function drawObjects() {
+    for (const obj of run.objects) {
+      const x = obj.trackFn(obj.fallProgress);
+      if (obj.type === "saucer" || obj.type === "alien") {
+        ctx.fillStyle = "#fff";
+        setFont(obj.size);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(obj.type === "saucer" ? "\u{1F6F8}" : "\u{1F47D}", x, obj.y);
+      } else {
+        ctx.save();
+        ctx.translate(x, obj.y);
+        ctx.rotate(obj.rotation);
+        ctx.fillStyle = "rgb(235,235,235)";
+        roundRectPath(-obj.size / 2, -obj.size / 2, obj.size, obj.size, 6);
+        ctx.fill();
+        ctx.fillStyle = "rgb(30,30,30)";
+        for (const [dx, dy] of pipOffsets(obj.value)) {
+          ctx.beginPath();
+          ctx.arc(dx * obj.size * 0.25, dy * obj.size * 0.25, obj.size * 0.07, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  function drawFloatingTexts() {
+    setFont(15);
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    for (const ft of floatingTexts) {
+      const age = simTime - ft.startedAt;
+      const alpha = 255 * (1 - age / 700);
+      ctx.fillStyle = rgba(ft.color[0], ft.color[1], ft.color[2], Math.max(0, alpha));
+      ctx.fillText(ft.text, ft.x, ft.y - age * 0.05);
+    }
+  }
+
+  function render() {
+    ctx.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    drawBackground();
+    if (!sheet) return; // brief window before the bundled sprite loads
+
+    if (!gameStarted) {
+      drawCharacter(1, restingRow(), CHAR_REST_X);
+      drawButton("Start", START_BUTTON_Y);
+      return;
+    }
+
+    if (runComplete()) {
+      const { dodged, hit, saucers, aliens } = lastRun ? lastRun.tally : RunEngine.tallyBreakdown(run.dropLog);
+      const layout = endLayout();
+      ctx.fillStyle = "rgb(140,180,255)";
+      setFont(12);
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(dodged + " dodged · " + hit + " hit · " + saucers + " saucer" + (saucers === 1 ? "" : "s") + " · " + aliens + " alien" + (aliens === 1 ? "" : "s"), 8, 18);
+      drawCharacter(1, restingRow(), run.charX);
+      ctx.fillStyle = "#fff";
+      setFont(18);
+      ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+      ctx.fillText("Final score: " + run.score, CANVAS_WIDTH / 2, layout.score);
+      drawButton("Play Again", layout.button);
+      return;
+    }
+
+    drawObjects();
+    drawFloatingTexts();
+
+    const frameIndex = isMoving ? WALK_SEQUENCE[sequencePos % WALK_SEQUENCE.length] : 1;
+    const atRest = !isMoving && simTime - lastMovedAt >= REST_FACING_GRACE_MS;
+    drawCharacter(frameIndex, atRest ? restingRow() : facingRow, run.charX);
+
+    if (simTime < glowUntil && glowColor) {
+      ctx.fillStyle = rgba(glowColor[0], glowColor[1], glowColor[2], glowColor[3]);
+      ctx.beginPath(); ctx.arc(run.charX, characterY, destWidth * 0.45, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.fillStyle = "rgb(140,180,255)";
+    setFont(13);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    ctx.fillText("score: " + run.score + "   drop " + Math.min(run.dropsResolved + (run.objects.length > 0 ? 1 : 0), RUN_LENGTH) + " of " + RUN_LENGTH, 8, 18);
+  }
+
+  // Fixed-step loop: as many 60Hz steps as real time calls for, capped
+  // so a backgrounded tab doesn't fast-forward through a whole run.
+  let lastFrameAt = null, accumulator = 0;
+  function frame(now) {
+    if (lastFrameAt === null) lastFrameAt = now;
+    accumulator += Math.min(now - lastFrameAt, 250);
+    lastFrameAt = now;
+    let steps = 0;
+    while (accumulator >= STEP_MS && steps < 8) {
+      step();
+      updateShootingStar();
+      accumulator -= STEP_MS;
+      steps += 1;
+    }
+    if (steps === 8) accumulator = 0;
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ===================================================================
+  // Host messaging -- three transport tiers.
+  // ===================================================================
+  const statusEl = document.getElementById("status");
+  const spriteBtn = document.getElementById("spriteBtn");
+  function setStatus(text) { statusEl.textContent = text; }
+  // What the bar says when nothing is in progress: the controls hint, or
+  // whose sprite is loaded. "cancelled" goes back to this.
+  let restingStatus = statusEl.textContent;
+
+  let _send = null;
+  function send(message) { if (_send) _send(message); }
+
+  const STATUS_TEXT = {
+    searching: "Search for your handle below the game ↓",
+    loading: "Loading your sprite…",
+    "no-sprite": "That account has no RPG actor sprite yet. Make one at rpg.actor!",
+    error: "Couldn't load that sprite, so the current character stays.",
+    cancelled: null, // back to restingStatus
+  };
+
+  // The button only appears once a host has actually answered. Embedded
+  // somewhere that doesn't run the sprite search (the gallery, a plain
+  // <WebTile />, webtil.es), the tile still gets data.js but nobody
+  // replies, so the button stays hidden instead of doing nothing.
+  function revealSpriteButton() { spriteBtn.style.display = "inline-block"; }
+
+  // ===================================================================
+  // Saving a run (version 2) -- only when the host says it can: it answers
+  // hello with { kind: "can-save", collections: [...] } naming this game's
+  // collection. Nothing is saved unless the player taps "Save this run";
+  // the moves go in only with the box ticked.
+  // ===================================================================
+  const saveBtn = document.getElementById("saveBtn");
+  const movesBox = document.getElementById("movesBox");
+  const movesLabel = document.getElementById("movesLabel");
+  const saveStatus = document.getElementById("saveStatus");
+  let canSave = false;
+  let saveCount = 0;
+  let pendingSave = null;   // { id, run } while the host works on it
+  let savedUri = null;      // the record the host wrote for this run (for "See it")
+
+  function setSaveStatus(text, { ok = false, seeIt = false } = {}) {
+    saveStatus.replaceChildren();
+    if (!text) return;
+    const span = document.createElement("span");
+    span.textContent = text;
+    if (ok) span.className = "ok";
+    saveStatus.append(span);
+    if (seeIt) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.id = "seeIt";
+      b.textContent = "See it";
+      b.addEventListener("click", () => {
+        sound.unlock();
+        play("click");
+        if (savedUri) send({ kind: "open-record", uri: savedUri });
+      });
+      saveStatus.append(b);
+    }
+  }
+  function hideSavePanel() {
+    savePanel.hidden = true;
+    pendingSave = null;
+    savedUri = null;
+    saveBtn.textContent = "Save this run";
+    saveBtn.disabled = false;
+    movesBox.checked = false;
+    movesBox.disabled = false;
+    movesLabel.classList.remove("off");
+    setSaveStatus("");
+  }
+  function showSavePanel() {
+    if (!canSave || !lastRun) return;
+    savePanel.hidden = false;
+    const tooMany = lastRun.moves.changes.length > RunEngine.MAX_CHANGES;
+    movesBox.disabled = tooMany;
+    movesLabel.classList.toggle("off", tooMany);
+    if (tooMany) setSaveStatus("This run has too many moves to include them.");
+  }
+  function lockSave(on) {
+    saveBtn.disabled = on;
+    movesBox.disabled = on || lastRun.moves.changes.length > RunEngine.MAX_CHANGES;
+    movesLabel.classList.toggle("off", movesBox.disabled);
+  }
+  // What goes to the host: the run as this tile saw it. The host fills in the rest (the game's
+  // address and version, $type, createdAt): see README.md.
+  function runRecord(includeMoves) {
+    const r = { score: lastRun.score, day: lastRun.day, playedAt: lastRun.playedAt, tally: Object.assign({}, lastRun.tally) };
+    if (includeMoves) r.moves = JSON.parse(JSON.stringify(lastRun.moves));
+    return r;
+  }
+  saveBtn.addEventListener("click", () => {
+    if (!lastRun || pendingSave || savedUri) return;
+    sound.unlock();
+    play("click");
+    saveCount += 1;
+    const id = "run-" + saveCount;
+    pendingSave = { id, run: lastRun };
+    const record = runRecord(movesBox.checked && !movesBox.disabled);
+    lockSave(true);
+    setSaveStatus("Waiting for the host…");
+    send({ kind: "write-record", id, action: "create", collection: RUN_COLLECTION, record });
+  });
+
+  const SAVE_ERRORS = {
+    declined: "Not saved.",
+    "not-allowed": "This host can't save runs from this copy of the game.",
+    invalid: "The host couldn't accept this run.",
+    failed: "Couldn't save. Try again.",
+  };
+  function handleSaveMessage(msg) {
+    if (msg.kind === "can-save") {
+      const list = Array.isArray(msg.collections) ? msg.collections : [];
+      canSave = list.indexOf(RUN_COLLECTION) >= 0;
+      if (canSave && runComplete()) showSavePanel();
+      if (!canSave) savePanel.hidden = true;
+      return;
+    }
+    if (!pendingSave || msg.id !== pendingSave.id || pendingSave.run !== lastRun) return;
+    if (msg.kind === "write-record-status") {
+      if (msg.state === "asking") setSaveStatus("Waiting for you to allow it…");
+      else if (msg.state === "saving") setSaveStatus("Saving…");
+      return;
+    }
+    if (msg.kind !== "write-record-result") return;
+    pendingSave = null;
+    if (msg.ok === true && typeof msg.uri === "string" && msg.uri.startsWith("at://")) {
+      savedUri = msg.uri.slice(0, 600);
+      const handle = typeof msg.handle === "string" ? msg.handle.replace(/^@/, "").slice(0, 100) : "";
+      saveBtn.textContent = "Saved";
+      saveBtn.disabled = true;
+      movesBox.disabled = true;
+      movesLabel.classList.add("off");
+      setSaveStatus(handle ? "Saved to @" + handle + "'s account ✓" : "Saved ✓", { ok: true, seeIt: true });
+      return;
+    }
+    const error = Object.prototype.hasOwnProperty.call(SAVE_ERRORS, msg.error) ? msg.error : "failed";
+    setSaveStatus(SAVE_ERRORS[error]);
+    if (error === "not-allowed" || error === "invalid") { saveBtn.disabled = true; return; }
+    lockSave(false);
+  }
+
+  function handleHostMessage(msg) {
+    if (!msg || typeof msg !== "object" || typeof msg.kind !== "string") return;
+    if (msg.kind === "can-save" || msg.kind === "write-record-status" || msg.kind === "write-record-result") { handleSaveMessage(msg); return; }
+    if (msg.kind === "sprite" || msg.kind === "sprite-status") revealSpriteButton();
+    if (msg.kind === "sprite-status" && msg.state === "ready") return; // the host's answer to hello
+    if (msg.kind === "sprite") {
+      spriteReady.then(() => handleSpriteMessage(msg));
+    } else if (msg.kind === "sprite-status" && Object.prototype.hasOwnProperty.call(STATUS_TEXT, msg.state)) {
+      setStatus(STATUS_TEXT[msg.state] || restingStatus);
+      spriteBtn.disabled = msg.state === "loading";
+    }
+  }
+
+  spriteBtn.addEventListener("click", () => {
+    sound.unlock();
+    play("click");
+    send({ kind: "sprite-request" });
+    setStatus(STATUS_TEXT.searching);
+  });
+
+  async function initTransport() {
+    // Tier 1: loaded through the real tile pipeline.
+    try {
+      const dataProtocol = await import("/.well-known/web-tiles/data.js");
+      dataProtocol.addDataHandler(handleHostMessage);
+      dataProtocol.listen();
+      _send = (payload) => dataProtocol.sendData(payload);
+    } catch {
+      // Tier 2: a plain iframe (local test harness).
+      if (window.parent && window.parent !== window) {
+        window.addEventListener("message", (e) => {
+          if (e.source === window.parent) handleHostMessage(e.data);
+        });
+        _send = (payload) => window.parent.postMessage(Object.assign({ source: "cosmic-junkyard" }, payload), "*");
+      }
+      // Tier 3: no host at all. The game plays with the bundled sprite
+      // and the "load my sprite" button stays hidden.
+    }
+    if (_send) send({ kind: "hello", v: 1 });
+  }
+  initTransport();
+})();
+</script>
+</body>
+</html>

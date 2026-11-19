@@ -1,0 +1,28 @@
+[
+  {
+    "resource_key": "/",
+    "blob": {
+      "$type": "blob",
+      "ref": {
+        "$link": "bafkreigy6f5ua2hobes4zyurdpdd45jcd47ldv444hfkortdvbpjtwpwk4"
+      },
+      "mimeType": "application/octet-stream",
+      "size": 32657
+    },
+    "predicted_cid": "bafkreigy6f5ua2hobes4zyurdpdd45jcd47ldv444hfkortdvbpjtwpwk4",
+    "matched": true
+  },
+  {
+    "resource_key": "/sprite.png",
+    "blob": {
+      "$type": "blob",
+      "ref": {
+        "$link": "bafkreidtr5uxobcoz6uxnjjmvtdmnwdt462624wbzxne6tvqxzdquv7xsy"
+      },
+      "mimeType": "image/png",
+      "size": 12297
+    },
+    "predicted_cid": "bafkreidtr5uxobcoz6uxnjjmvtdmnwdt462624wbzxne6tvqxzdquv7xsy",
+    "matched": true
+  }
+]

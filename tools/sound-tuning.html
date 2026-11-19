@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Cosmic Junkyard: sound tuning</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  Play and adjust Cosmic Junkyard's beeps (claude/cosmic-junkyard-v2-plan.md, CJ2-13). Open this file in a browser
+  (double-click it; no server needed). Each sound is a list of notes; change any number and press its Play. Reset puts
+  back the tile's own settings; A and B keep two versions to compare; "Copy settings" copies the text to paste over
+  SOUND_SETTINGS in tile/index.html (between the SOUND ENGINE lines). The block below is a copy of the tile's own:
+  npm test checks they are the same, so after pasting new settings into the tile, paste them here too (or copy the
+  tile's whole block here).
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #05070d; color: #eaf0f6; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; background: #0b1020; border-bottom: 1px solid #1c2230; }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  main { padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 16px; }
+  section { border: 1px solid #1c2230; border-radius: 10px; padding: 12px; background: #0a0e1a; }
+  section h2 { font-size: 15px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+  section p { margin: 0 0 8px; color: #8ea0b3; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; font-weight: normal; color: #8ea0b3; font-size: 11px; padding: 2px 4px; }
+  td { padding: 2px 4px; }
+  input[type=number] { width: 74px; background: #111829; color: #eaf0f6; border: 1px solid #2a3550; border-radius: 5px; padding: 3px 5px; font: inherit; font-size: 12px; }
+  select { background: #111829; color: #eaf0f6; border: 1px solid #2a3550; border-radius: 5px; padding: 3px; font-size: 12px; }
+  button { appearance: none; border: 1px solid rgba(140,180,255,0.45); background: rgba(140,180,255,0.12); color: #eaf0f6; font-size: 12px; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+  button:hover { background: rgba(140,180,255,0.24); }
+  button.play { background: rgb(140,180,255); color: #111; border-color: rgb(140,180,255); }
+  button.x { padding: 2px 7px; }
+  label { display: inline-flex; align-items: center; gap: 6px; }
+  #note { color: #8ea0b3; font-size: 12px; }
+  textarea { position: absolute; left: -9999px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cosmic Junkyard: sounds</h1>
+  <label>Volume <input type="range" id="volume" min="0" max="1" step="0.01" /> <span id="volumeText"></span></label>
+  <button type="button" id="playAll">Play all</button>
+  <button type="button" id="reset">Reset to the tile's</button>
+  <button type="button" id="keepA">Keep as A</button><button type="button" id="useA">Use A</button>
+  <button type="button" id="keepB">Keep as B</button><button type="button" id="useB">Use B</button>
+  <button type="button" id="copy">Copy settings</button>
+  <span id="note"></span>
+</header>
+<main id="sounds"></main>
+<script>
+(function () {
+  "use strict";
+  // ==== SOUND ENGINE START ====
+  // Retro arcade beeps made with Web Audio (no sound files). Each sound is a list of notes:
+  // { wave, from, to, at, dur, gain, attack } -- a waveform, a pitch in Hz sliding from `from`
+  // to `to`, starting `at` seconds in, lasting `dur` seconds, at `gain`, rising over `attack`
+  // seconds and then fading out. tools/sound-tuning.html holds a copy of this block (a check
+  // keeps them the same) to play and adjust each sound; its "Copy settings" gives the text to
+  // paste over SOUND_SETTINGS.
+  const SOUND_SETTINGS = {
+    volume: 0.5,
+    sounds: {
+      start: [
+        { wave: "square", from: 523.25, to: 523.25, at: 0, dur: 0.09, gain: 0.22, attack: 0.005 },
+        { wave: "square", from: 659.25, to: 659.25, at: 0.07, dur: 0.09, gain: 0.22, attack: 0.005 },
+        { wave: "square", from: 783.99, to: 783.99, at: 0.14, dur: 0.09, gain: 0.22, attack: 0.005 },
+        { wave: "square", from: 1046.5, to: 1046.5, at: 0.21, dur: 0.2, gain: 0.22, attack: 0.005 },
+      ],
+      catch: [
+        { wave: "square", from: 988, to: 1480, at: 0, dur: 0.08, gain: 0.2, attack: 0.003 },
+        { wave: "square", from: 1480, to: 1480, at: 0.06, dur: 0.06, gain: 0.14, attack: 0.003 },
+      ],
+      alien: [
+        { wave: "square", from: 660, to: 990, at: 0, dur: 0.07, gain: 0.2, attack: 0.003 },
+        { wave: "square", from: 990, to: 1480, at: 0.07, dur: 0.09, gain: 0.2, attack: 0.003 },
+        { wave: "triangle", from: 1975, to: 1975, at: 0.15, dur: 0.12, gain: 0.18, attack: 0.003 },
+      ],
+      hit: [
+        { wave: "sawtooth", from: 160, to: 55, at: 0, dur: 0.28, gain: 0.26, attack: 0.004 },
+        { wave: "square", from: 90, to: 50, at: 0, dur: 0.25, gain: 0.14, attack: 0.004 },
+      ],
+      end: [
+        { wave: "square", from: 392, to: 392, at: 0, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 523.25, to: 523.25, at: 0.12, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 659.25, to: 659.25, at: 0.24, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 783.99, to: 783.99, at: 0.36, dur: 0.2, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 659.25, to: 659.25, at: 0.6, dur: 0.11, gain: 0.16, attack: 0.005 },
+        { wave: "square", from: 1046.5, to: 1046.5, at: 0.72, dur: 0.45, gain: 0.16, attack: 0.005 },
+      ],
+      click: [
+        { wave: "square", from: 1800, to: 1800, at: 0, dur: 0.025, gain: 0.1, attack: 0.002 },
+      ],
+    },
+  };
+  function createSoundEngine(settings) {
+    let ac = null, master = null;
+    return {
+      settings,
+      // From a tap or key press (browsers start sound only then): makes the audio context, or wakes it.
+      unlock() {
+        try {
+          if (!ac) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            ac = new AC();
+            master = ac.createGain();
+            master.connect(ac.destination);
+          }
+          if (ac.state === "suspended") ac.resume();
+        } catch { ac = null; }
+      },
+      play(name) {
+        const notes = settings.sounds[name];
+        if (!ac || !notes) return;
+        try {
+          master.gain.setValueAtTime(settings.volume, ac.currentTime);
+          for (const n of notes) {
+            const t0 = ac.currentTime + Math.max(0, n.at);
+            const end = t0 + Math.max(0.01, n.dur);
+            const osc = ac.createOscillator();
+            const g = ac.createGain();
+            osc.type = n.wave;
+            osc.frequency.setValueAtTime(n.from, t0);
+            if (n.to > 0 && n.to !== n.from) osc.frequency.exponentialRampToValueAtTime(n.to, end);
+            g.gain.setValueAtTime(0.0001, t0);
+            g.gain.linearRampToValueAtTime(Math.max(0.0001, n.gain), t0 + Math.max(0.001, n.attack));
+            g.gain.exponentialRampToValueAtTime(0.0001, end);
+            osc.connect(g);
+            g.connect(master);
+            osc.start(t0);
+            osc.stop(end + 0.02);
+          }
+        } catch { /* no sound this time */ }
+      },
+    };
+  }
+  // ==== SOUND ENGINE END ====
+
+  const WHEN = {
+    start: "Start and Play Again.",
+    catch: "Catching a saucer (+10).",
+    alien: "Catching an alien (+15).",
+    hit: "A die hits the character.",
+    end: "The run's end (the last drop gone).",
+    click: "The game's own buttons: Save this run, See it, mute, the sprite button.",
+  };
+  const FIELDS = [["from", "from Hz", 1], ["to", "to Hz", 1], ["at", "at s", 0.01], ["dur", "length s", 0.01], ["gain", "gain", 0.01], ["attack", "attack s", 0.001]];
+  const WAVES = ["square", "triangle", "sawtooth", "sine"];
+  const original = JSON.parse(JSON.stringify(SOUND_SETTINGS));
+  let settings = JSON.parse(JSON.stringify(SOUND_SETTINGS));
+  let sound = createSoundEngine(settings);
+  const kept = { A: null, B: null };
+  const $ = (id) => document.getElementById(id);
+  const note = (t) => { $("note").textContent = t; };
+
+  function play(name) { sound.unlock(); sound.play(name); }
+  function el(tag, props = {}, ...kids) { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; }
+
+  function draw() {
+    sound = createSoundEngine(settings);
+    $("volume").value = settings.volume;
+    $("volumeText").textContent = settings.volume.toFixed(2);
+    const main = $("sounds");
+    main.replaceChildren();
+    for (const name of Object.keys(settings.sounds)) {
+      const notes = settings.sounds[name];
+      const rows = notes.map((n, i) => el("tr", {},
+        el("td", {}, (() => { const s = el("select", { onchange: () => { n.wave = s.value; } }); for (const w of WAVES) s.append(el("option", { value: w, selected: w === n.wave }, w)); return s; })()),
+        ...FIELDS.map(([k, , step]) => el("td", {}, el("input", { type: "number", step, value: n[k], onchange: (e) => { const v = parseFloat(e.target.value); if (!Number.isNaN(v)) n[k] = v; } }))),
+        el("td", {}, el("button", { type: "button", className: "x", title: "Remove this note", onclick: () => { notes.splice(i, 1); draw(); } }, "×"))));
+      main.append(el("section", {},
+        el("h2", {}, name, el("button", { type: "button", className: "play", onclick: () => play(name) }, "Play")),
+        el("p", {}, WHEN[name] || ""),
+        el("table", {}, el("tr", {}, el("th", {}, "wave"), ...FIELDS.map(([, label]) => el("th", {}, label)), el("th")), ...rows),
+        el("button", { type: "button", onclick: () => { const last = notes[notes.length - 1] || { wave: "square", from: 880, to: 880, at: 0, dur: 0.1, gain: 0.2, attack: 0.005 }; notes.push(Object.assign({}, last, { at: +(last.at + last.dur).toFixed(3) })); draw(); } }, "Add a note")));
+    }
+  }
+
+  $("volume").addEventListener("input", (e) => { settings.volume = parseFloat(e.target.value); $("volumeText").textContent = settings.volume.toFixed(2); });
+  $("playAll").addEventListener("click", () => { Object.keys(settings.sounds).forEach((n, i) => setTimeout(() => play(n), i * 1100)); });
+  $("reset").addEventListener("click", () => { settings = JSON.parse(JSON.stringify(original)); draw(); note("Back to the tile's settings."); });
+  for (const k of ["A", "B"]) {
+    $("keep" + k).addEventListener("click", () => { kept[k] = JSON.parse(JSON.stringify(settings)); note("Kept as " + k + "."); });
+    $("use" + k).addEventListener("click", () => { if (!kept[k]) { note("Nothing kept as " + k + " yet."); return; } settings = JSON.parse(JSON.stringify(kept[k])); draw(); note("Using " + k + "."); });
+  }
+  // The text to paste over SOUND_SETTINGS in the tile: the same layout, one note per line.
+  function settingsText(s) {
+    const num = (v) => String(+(+v).toFixed(4));
+    const lines = ["  const SOUND_SETTINGS = {", "    volume: " + num(s.volume) + ",", "    sounds: {"];
+    for (const [name, notes] of Object.entries(s.sounds)) {
+      lines.push("      " + name + ": [");
+      for (const n of notes) lines.push('        { wave: "' + n.wave + '", from: ' + num(n.from) + ", to: " + num(n.to) + ", at: " + num(n.at) + ", dur: " + num(n.dur) + ", gain: " + num(n.gain) + ", attack: " + num(n.attack) + " },");
+      lines.push("      ],");
+    }
+    lines.push("    },", "  };");
+    return lines.join("\n");
+  }
+  $("copy").addEventListener("click", async () => {
+    const text = settingsText(settings);
+    try { await navigator.clipboard.writeText(text); note("Copied. Paste it over SOUND_SETTINGS in tile/index.html, or into the chat."); }
+    catch { const t = el("textarea", { value: text }); document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); note("Copied."); }
+  });
+  window.__settingsText = () => settingsText(settings);
+  draw();
+})();
+</script>
+</body>
+</html>

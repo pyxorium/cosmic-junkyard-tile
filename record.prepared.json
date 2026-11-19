@@ -1,0 +1,33 @@
+{
+  "$type": "ing.dasl.masl",
+  "cid": "bafyreif6tgpdhckolcpncqtxgc4jdckfuezhpjq7y5sehhexv356tgleyi",
+  "tile": {
+    "name": "Cosmic Junkyard",
+    "description": "Dodge falling dice and catch saucers and aliens, playing as your own atproto RPG actor sprite. A House Dice Dice Lab game, as a Web Tile.",
+    "resources": {
+      "/": {
+        "src": {
+          "$type": "blob",
+          "ref": {
+            "$link": "bafkreigy6f5ua2hobes4zyurdpdd45jcd47ldv444hfkortdvbpjtwpwk4"
+          },
+          "size": 32657,
+          "mimeType": "application/octet-stream"
+        },
+        "content-type": "text/html"
+      },
+      "/sprite.png": {
+        "src": {
+          "$type": "blob",
+          "ref": {
+            "$link": "bafkreidtr5uxobcoz6uxnjjmvtdmnwdt462624wbzxne6tvqxzdquv7xsy"
+          },
+          "size": 12297,
+          "mimeType": "image/png"
+        },
+        "content-type": "image/png"
+      }
+    }
+  },
+  "createdAt": "2026-10-02T15:26:26.697Z"
+}

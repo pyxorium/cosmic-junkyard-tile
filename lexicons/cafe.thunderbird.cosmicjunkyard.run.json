@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "cafe.thunderbird.cosmicjunkyard.run",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One finished run of Cosmic Junkyard (a web tile game), saved by its player to their own account. Written by the host page the game ran in, which fills in the game's address and version from the tile it actually ran. With moves, anyone can replay the run on its day's course to check its score.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["game", "score", "day", "playedAt", "createdAt"],
+        "properties": {
+          "game": { "type": "ref", "ref": "com.atproto.repo.strongRef", "description": "The game tile that played the run: its ing.dasl.masl record's address and exact version." },
+          "score": { "type": "integer", "description": "The final score: dice dodged add their value, dice hit take it away, saucers add 10, aliens 15." },
+          "day": { "type": "string", "minLength": 10, "maxLength": 10, "description": "The day's course that was played, YYYY-MM-DD (the America/Denver calendar day; every player gets the same course that day)." },
+          "playedAt": { "type": "string", "format": "datetime", "description": "When the run ended, by the player's clock." },
+          "tally": { "type": "ref", "ref": "#tally" },
+          "moves": { "type": "ref", "ref": "#moves" },
+          "createdAt": { "type": "string", "format": "datetime", "description": "When the run was saved." }
+        }
+      }
+    },
+    "tally": {
+      "type": "object",
+      "description": "What the run's end screen shows.",
+      "required": ["dodged", "hit", "saucers", "aliens"],
+      "properties": {
+        "dodged": { "type": "integer", "minimum": 0 },
+        "hit": { "type": "integer", "minimum": 0 },
+        "saucers": { "type": "integer", "minimum": 0 },
+        "aliens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "moves": {
+      "type": "object",
+      "description": "Present only when the player chose to include their moves. Enough to replay the run exactly: the game steps 60 times a second, and the character moves left, right or not at all in each step.",
+      "required": ["frame", "steps", "changes"],
+      "properties": {
+        "frame": { "type": "ref", "ref": "#frame" },
+        "steps": { "type": "integer", "minimum": 1, "description": "How many steps the run took, from Start to the last drop." },
+        "changes": { "type": "array", "maxLength": 4000, "items": { "type": "ref", "ref": "#change" }, "description": "Each change of direction, in step order. Before the first, the character stands still." }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "description": "The size of one frame of the character's sprite sheet, in pixels: it sets the character's hitbox and height.",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 4096 }
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": ["at", "go"],
+      "properties": {
+        "at": { "type": "integer", "minimum": 1, "description": "The step (counted from 1) from which the character goes this way." },
+        "go": { "type": "string", "enum": ["left", "right", "stop"] }
+      }
+    }
+  }
+}

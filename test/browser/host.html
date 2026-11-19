@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>CJ test host</title></head>
+<body style="margin:0;background:#222">
+<iframe id="t" src="/tile/index.html" style="width:360px;height:530px;border:0"></iframe>
+<script>
+// A plain-iframe host (the tile's tier 2) for the checks: it logs what the tile sends and lets the check answer.
+window.got = [];
+const f = document.getElementById('t');
+window.addEventListener('message', (e) => {
+  if (e.source !== f.contentWindow) return;
+  window.got.push(e.data);
+  if (e.data && e.data.kind === 'hello' && window.answerHello) window.answerHello();
+});
+window.toTile = (m) => f.contentWindow.postMessage(m, '*');
+</script></body></html>

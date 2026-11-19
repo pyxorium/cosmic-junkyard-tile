@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cosmic Junkyard: local test harness</title>
+<!--
+  Local test page for the host half of the demo, with no publishing needed.
+  Loads ../tile/index.html in a plain iframe (the tile's "tier 2" transport,
+  ordinary postMessage) and runs the exact same sprite-host.js the blog post
+  uses. The handle search and sprite lookup make real network calls.
+
+  Run from the cosmic-junkyard-tile folder (one level up), not from here:
+    python -m http.server 8000
+  then open http://localhost:8000/host-demo/test-harness.html
+
+  Add ?format=dataurl to the address to test the data-URL path instead of Blob.
+-->
+<link rel="stylesheet" href="lib/sprite-host.css" />
+<style>
+  body { margin: 0; padding: 24px 16px; background: #15171c; color: #eaf0f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 16px; color: #8ea0b3; text-align: center; margin: 0 0 4px; }
+  p.note { font-size: 12px; color: #5a6774; text-align: center; margin: 0; }
+  .cj-tile-mount iframe { width: 360px; max-width: 100%; height: 530px; }
+</style>
+</head>
+<body>
+  <h1>Cosmic Junkyard: local test harness</h1>
+  <p class="note">Plain iframe, real network lookups. <span id="formatNote"></span></p>
+
+  <div class="cj-demo">
+    <div class="cj-tile-mount"><iframe id="tile" title="Cosmic Junkyard tile"></iframe></div>
+    <div class="cj-panel-mount" id="panelMount"></div>
+  </div>
+
+<script type="module">
+  import { createSpriteHost } from "./lib/sprite-host.js";
+
+  const iframe = document.getElementById("tile");
+  const imageFormat = new URLSearchParams(location.search).get("format") === "dataurl" ? "dataurl" : "blob";
+  document.getElementById("formatNote").textContent = "Sprite sent as: " + imageFormat + ".";
+
+  const host = createSpriteHost({
+    panelMount: document.getElementById("panelMount"),
+    imageFormat,
+    sendToTile(payload) {
+      iframe.contentWindow.postMessage(payload, "*");
+    },
+  });
+
+  window.addEventListener("message", (e) => {
+    if (e.source === iframe.contentWindow) host.handleTileMessage(e.data);
+  });
+  // Load the tile only now, so its first "hello" can't arrive before
+  // this page is listening for it.
+  iframe.src = "../tile/index.html";
+</script>
+</body>
+</html>
